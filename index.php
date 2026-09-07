@@ -69,7 +69,7 @@ $istwofa = $_SESSION["temp_istwofamode"] ? true : false;
     <title>UMAR AUTH - Login</title>
 
     <!-- Canonical SEO -->
-    <link rel="canonical" href="https:/sssss-dusky.vercel.app/" />
+    <link rel="canonical" href="https:/sssss-dusky.vercel.app/login" />
 
     <!-- Tailwind + Animate.css (public CDN — works on Vercel & all hosts) -->
     <script src="https://cdn.tailwindcss.com"></script>
