@@ -1,9 +1,18 @@
 <?php
-include '../../includes/misc/autoload.phtml';
-include '../../includes/api/shared/autoload.phtml';
-include '../../includes/api/1.0/autoload.phtml';
+require '../includes/misc/autoload.phtml';
+require '../includes/dashboard/autoload.phtml';
+require '../includes/api/shared/autoload.phtml';
 
-header("Access-Control-Allow-Origin: *"); // allow browser applications to request API
+ob_start();
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+if (isset($_SESSION['username'])) {
+    header("Location: ../app/");
+    exit();
+}
 
 set_exception_handler(function ($exception) {
     error_log("\n--------------------------------------------------------------\n");
@@ -12,1148 +21,557 @@ set_exception_handler(function ($exception) {
     error_log(print_r($_POST, true));
     error_log("\n--------------------------------------------------------------");
     http_response_code(500);
-    $errorMsg = str_replace($databaseUsername, "REDACTED", $exception->getMessage());
-    die(json_encode(array("success" => false, "message" => "Error: " . $errorMsg)));
+    \dashboard\primary\error($exception->getMessage());
 });
 
-if(empty($_POST['ownerid'])) {
-    die(json_encode(array("success" => false, "message" => "No OwnerID specified. Select app & copy code snippet from https://keyauth.cc/app/")));
-}
+$istwofa = $_SESSION["temp_istwofamode"] ? true : false;
 
-if(empty($_POST['name'])) {
-    die(json_encode(array("success" => false, "message" => "No app name specified. Select app & copy code snippet from https://keyauth.cc/app/")));
-}
+?>
 
-if(strlen(hex2bin($_POST['ownerid'])) != 10) {
-    die(json_encode(array("success" => false, "message" => "OwnerID should be 10 characters long. Select app & copy code snippet from https://keyauth.cc/app/")));
-}
+<!DOCTYPE html>
+<html lang="en" class="bg-[#09090d] text-white overflow-x-hidden">
 
-$ownerid = misc\etc\sanitize(hex2bin($_POST['ownerid'])); // ownerid of account that owns application
-$name = misc\etc\sanitize(hex2bin($_POST['name'])); // application name
-$row = misc\cache\fetch('keyauthApp:' . $name . ':' . $ownerid, "SELECT * FROM `apps` WHERE `ownerid` = ? AND `name` = ?", [$ownerid, $name], 0);
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-if ($row == "not_found") {
-    die("UMAR_AUTH_Invalid");
-}
+    <meta name="title" content="UMAR AUTH - Open Source Auth">
 
-// app settings
-$secret = $row['secret'];
-$hwidenabled = $row['hwidcheck'];
-$vpnblock = $row['vpnblock'];
-$status = $row['enabled'];
-$paused = $row['paused'];
-$currentver = $row['ver'];
-$download = $row['download'];
-$webhook = $row['webhook'];
-$appdisabled = $row['appdisabled'];
-$hashcheck = $row['hashcheck'];
-$serverhash = $row['hash'];
-$sessionexpiry = $row['session'];
-$forceHwid = $row['forceHwid'];
+    <meta content="Secure your software against piracy, an issue causing $422 million in losses annually - Fair pricing & Features not seen in competitors" name="description" />
+    <meta content="UMAR AUTH" name="author" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="keywords" content="UMAR AUTH, Cloud Authentication, Key Authentication,Authentication, API authentication,Security, Encryption authentication, Authenticated encryption, Cybersecurity, Developer, SaaS, Software Licensing, Licensing" />
+    <meta property="og:description" content="Secure your software against piracy, an issue causing $422 million in losses annually - Fair pricing & Features not seen in competitors" />
+    <meta property="og:image" content="https://avatars.githubusercontent.com/u/84477976?v=4" />
+    <meta property="og:site_name" content="UMAR AUTH | Secure your software from piracy." />
+    <link rel="shortcut icon" type="image/jpg" href="https://avatars.githubusercontent.com/u/84477976?v=4">
 
-$banned = $row['banned'];
-$owner = $row['owner'];
-$name = $row['name'];
+    <!-- Schema.org markup for Google+ -->
+    <meta itemprop="name" content="UMAR AUTH - Open Source Auth">
+    <meta itemprop="description" content="Secure your software against piracy, an issue causing $422 million in losses annually - Fair pricing & Features not seen in competitors">
+    <meta itemprop="image" content="https://avatars.githubusercontent.com/u/84477976?v=4">
 
-// custom error messages
-$usernametaken = $row['usernametaken'];
-$keynotfound = $row['keynotfound'];
-$keyused = $row['keyused'];
-$nosublevel = $row['nosublevel'];
-$usernamenotfound = $row['usernamenotfound'];
-$passmismatch = $row['passmismatch'];
-$hwidmismatch = $row['hwidmismatch'];
-$noactivesubs = $row['noactivesubs'];
-$hwidblacked = $row['hwidblacked'];
-$pausedsub = $row['pausedsub'];
-$vpnblocked = $row['vpnblocked'];
-$keybanned = $row['keybanned'];
-$userbanned = $row['userbanned'];
-$sessionunauthed = $row['sessionunauthed'];
-$hashcheckfail = $row['hashcheckfail'];
+    <!-- Twitter Card data -->
+    <meta name="twitter:card" content="product">
+    <meta name="twitter:site" content="@keyauth">
+    <meta name="twitter:title" content="UMAR AUTH - Open Source Auth">
 
-// why using null coalescing operators? because if I add a field and it's not in redis cache, it'll be NULL
-$loggedInMsg = $row['loggedInMsg'] ?? "Logged in!";
-$pausedApp = $row['pausedApp'] ?? "Application is currently paused, please wait for the developer to say otherwise.";
-$unTooShort = $row['unTooShort'] ?? "Username too short, try longer one.";
-$pwLeaked = $row['pwLeaked'] ?? "This password has been leaked in a data breach (not from us), please use a different one.";
-$chatHitDelay = $row['chatHitDelay'] ?? "Chat slower, you've hit the delay limit";
-$minHwid = $row['minHwid'] ?? 20;
+    <meta name="twitter:description" content="Secure your software against piracy, an issue causing $422 million in losses annually - Fair pricing & Features not seen in competitors">
+    <meta name="twitter:creator" content="@keyauth">
+    <meta name="twitter:image" content="https://avatars.githubusercontent.com/u/84477976?v=4">
 
-if ($banned) {
-    die(api\v1_0\Encrypt(json_encode(array(
-        "success" => false,
-        "message" => "This application has been banned from keyauth.cc for violating terms." // yes we self promote to customers of those who break ToS. Should've followed terms :shrug:
-    )), $secret));
-}
+    <!-- Open Graph data -->
+    <meta property="og:title" content="UMAR AUTH - Open Source Auth" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="./" />
 
-if ($_GET['host'] == "UMAR AUTH.business") {
-    die(api\v1_0\Encrypt(json_encode(array(
-        "success" => false,
-        "message" => "Please tell the developer of this program to use latest API domain. This domain is old, it will expire in a month."
-    )), $secret));
-}
+    <title>UMAR AUTH - Login</title>
 
-switch (hex2bin($_POST['type'])) {
-    case 'init':
-        $ip = api\shared\primary\getIp();
-        if ($vpnblock) {
-            if (api\shared\primary\vpnCheck($ip)) {
-                $row = misc\cache\fetch('keyauthWhitelist:' . $secret . ':' . $ip, "SELECT 1 FROM `whitelist` WHERE `ip` = ? AND `app` = ?", [$ip, $secret], 0);
-                if ($row == "not_found") {
-                    die(api\v1_0\Encrypt(json_encode(array(
-                        "success" => false,
-                        "message" => "$vpnblocked"
-                    )), $secret));
+    <!-- Canonical SEO -->
+    <link rel="canonical" href="https://keyauth.cc" />
+
+    <!-- Tailwind + Animate.css (public CDN — works on Vercel & all hosts) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'border-gray-300': '#2a2a35',
+                        'border-gray-200': '#1a1a25',
+                        'ring-gray-800': '#1a1a25',
+                        'ring-gray-200': '#2a2a35',
+                        'border-border-gray-300': '#2a2a35',
+                    },
+                    fontFamily: { heading: ['Inter','system-ui','sans-serif'] }
                 }
             }
         }
+    </script>
+    <style>
+        .bg-\[\#09090d\] { background-color: #09090d; }
+        .bg-\[\#0f0f17\] { background-color: #0f0f17; }
+        .bg-\[\#1a1a25\] { background-color: #1a1a25; }
+        .border-1 { border-width: 1px; }
+        .border-border-gray-300 { border-color: #2a2a35; }
+    </style>
 
-        if (!$status) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$appdisabled"
-            )), $secret));
-        }
+</head>
 
-        if ($paused) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$pausedApp"
-            )), $secret));
-        }
+<body>
+    <header>
+        <nav class="border-gray-200 px-4 lg:px-6 py-2.5 mb-14">
+            <div class="flex flex-wrap justify-between items-center mx-auto max-w-screen-xl">
+                <a href="../" class="flex items-center">
+                    <img src="https://avatars.githubusercontent.com/u/84477976?v=4" class="mr-3 h-12 mt-2" alt="UMAR AUTH Logo" />
+                </a>
+                <div class="flex items-center lg:order-2">
+                    <a href="../login" class="text-white focus:ring-0 font-medium rounded-lg text-sm px-4 py-2 lg:px-5 lg:py-2.5 mr-2 hover:opacity-60 transition duration-200 focus:outline-none focus:ring-gray-800">
+                        Client Area
+                    </a>
+                    <a href="../register" class="text-white focus:ring-0 font-medium rounded-lg text-sm px-4 py-2 lg:px-5 lg:py-2.5 mr-2 bg-blue-600 hover:opacity-80 focus:outline-none focus:ring-blue-800 transition duration-200">
+                        Onboard Now
+                    </a>
+                    <button data-collapse-toggle="mmenu" type="button" class="inline-flex items-center p-2 ml-1 text-sm text-gray-500 rounded-lg lg:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200  " aria-controls="mmenu" aria-expanded="false">
+                        <span class="sr-only">Open main menu</span>
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"></path>
+                        </svg>
+                        <svg class="hidden w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="hidden justify-between items-center w-full lg:flex lg:w-auto lg:order-1" id="mmenu">
+                    <ul class="flex flex-col mt-4 font-medium lg:flex-row lg:space-x-8 lg:mt-0">
+                        <li>
+                            <a href="../" class="block py-2 pr-4 pl-3 border-b lg:hover:bg-transparent lg:border-0 lg:p-0 text-gray-400 hover:bg-gray-700 hover:text-white lg:hover:bg-transparent border-gray-700 transition duration-200" aria-current="page">Home</a>
+                        </li>
+                        <li>
+                            <a href="../#features" class="block py-2 pr-4 pl-3 border-b lg:hover:bg-transparent lg:border-0 lg:p-0 text-gray-400 hover:bg-gray-700 hover:text-white lg:hover:bg-transparent border-gray-700 transition duration-200">Features</a>
+                        </li>
+                        <li>
+                            <a href="../#plans" class="block py-2 pr-4 pl-3 border-b lg:hover:bg-transparent lg:border-0 lg:p-0 text-gray-400 hover:bg-gray-700 hover:text-white lg:hover:bg-transparent border-gray-700 transition duration-200">
+                                Plans
+                            </a>
+                        </li>
+                        <li>
+                            <a href="../#team" class="block py-2 pr-4 pl-3 border-b lg:hover:bg-transparent lg:border-0 lg:p-0 text-gray-400 hover:bg-gray-700 hover:text-white lg:hover:bg-transparent border-gray-700 transition duration-200">
+                                Our Team
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+    </header>
 
-        $ver = misc\etc\sanitize(api\v1_0\Decrypt($_POST['ver'], $secret));
+    <section>
+        <div class="relative z-10 flex flex-wrap md:-m-8 ml-8 md:ml-24">
+            <div class="w-full md:w-1/2 md:p-8">
+                <div class="md:max-w-lg md:mx-auto md:pt-36">
+                    <h2 class="mb-7 md:mb-12 text-3xl md:text-6xl font-bold font-heading tracking-px-n leading-tight text-center">
+                        Welcome back to <span class="text-transparent bg-clip-text bg-gradient-to-r to-blue-600 from-sky-400 inline-block">UMAR AUTH</span>
+                        👋
+                    </h2>
 
-        if ($ver != $currentver) {
-            // auto-update system
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "invalidver",
-                "download" => "$download"
-            ), JSON_UNESCAPED_SLASHES), $secret));
-        }
+                    <h3 class="mb-9 text-sm md:text-xl font-bold font-heading leading-normal">
+                        The best authentication platform for your software.
+                    </h3>
+                </div>
+            </div>
+            <div class="w-full md:w-1/2 md:p-8 -ml-4 md:-ml-12">
+                <div class="p-2 md:p-4 py-16 flex flex-col justify-center h-full">
+                    <form class="md:max-w-md md:ml-32 space-y-4 md:space-y-6" method="post" data-postform="1">
+                        <?php
 
-        $hash = misc\etc\sanitize($_POST['hash']);
+                        if ($istwofa) {
+                        ?>
+                            <script>
+                                let username = "<?= $_SESSION["temp_username"]; ?>"
+                                let password = "<?= $_SESSION["temp_password"]; ?>"
+                            </script>
 
-        if ($hashcheck) {
-            if (strpos($serverhash, $hash) === false) {
-                if (is_null($serverhash)) {
-                    misc\mysql\query("UPDATE `apps` SET `hash` = ? WHERE `secret` = ?", [$hash, $secret]);
-                    misc\cache\purge('keyauthApp:' . $name . ':' . $ownerid); // flush cache for application so new hash takes precedent
-                } else {
-                    die(api\v1_0\Encrypt(json_encode(array(
-                        "success" => false,
-                        "message" => "$hashcheckfail"
-                    )), $secret));
-                }
-            }
-        }
+                            <input type="hidden" id="username" name="username" value="${username}">
+                            <input type="hidden" id="password" name="password" value="${password}">
 
-        $enckey = misc\etc\sanitize(api\v1_0\Decrypt($_POST['enckey'], $secret));
+                            <script>
+                                document.getElementById("username").value = username;
+                                document.getElementById("password").value = password;
+                            </script>
 
-        $newSession = false;
-        $duplicateSession = misc\cache\select("keyauthSessionDupe:$secret:$ip");
-        if($duplicateSession) {
-            $sessionid = $duplicateSession;
-            $updateSession = misc\cache\update('keyauthState:'.$secret.':'.$sessionid.'', array("enckey" => $enckey));
-            if(!$updateSession) {
-                $sessionid = misc\etc\generateRandomString();
-                $newSession = true;
-            }
-        }
-        else {
-            $sessionid = misc\etc\generateRandomString();
-            $newSession = true;
-        }
+                            <div class="relative mb-4" data-twofactor="1">
+                                <input type="text" id="keyauthtwofactor" name="keyauthtwofactor" class="block px-2.5 pb-2.5 pt-4 w-full text-sm text-white bg-transparent rounded-lg border-1 border-border-gray-300 appearance-none focus:ring-0  peer" placeholder=" " autocomplete="on">
+                                <label for="keyauthtwofactor" class="absolute text-sm text-gray-400 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-[#09090d] px-2 peer-focus:px-2 peer-focus:text-blue-600 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-1">2FA
+                                    <span class="text-xs">(Two Factor Authentication)</span></label>
+                            </div>
 
-        // $row = misc\cache\fetch('keyauthAppStats:' . $secret, "SELECT (SELECT COUNT(1) FROM `users` WHERE `app` = ?) AS 'numUsers', (SELECT COUNT(1) FROM `sessions` WHERE `app` = ? AND `validated` = 1 AND `expiry` > ?) AS 'numOnlineUsers', (SELECT COUNT(1) FROM `keys` WHERE `app` = ?) AS 'numKeys' FROM dual", [$secret, $secret, time(), $secret], 0, 3600);
+                            <button name="login" data-loginbutton="1" class="text-white border-2 hover:bg-white hover:text-black focus:ring-0 focus:outline-none transition duration-200 font-medium rounded-lg text-sm px-5 py-2.5 text-center items-center mb-3 w-full mt-10">
+                                <span class="inline-flex">
+                                    Submit 2FA Code
+                                    <svg class="w-3.5 h-3.5 ml-2 mt-1" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 10">
+                                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 5h12m0 0L9 1m4 4L9 9"></path>
+                                    </svg></span>
+                            </button>
 
-        $numUsers = "N/A - Use fetchStats() function in latest example";
-        $numOnlineUsers = "N/A - Use fetchStats() function in latest example";
-        $numKeys = "N/A - Use fetchStats() function in latest example";
+                        <?php
+                        } else {
+                        ?>
+                            <div class="relative mb-4" data-username="1">
+                                <input type="text" id="username" name="username" class="block px-2.5 pb-2.5 pt-4 w-full text-sm text-white bg-transparent rounded-lg border-1 border-border-gray-300 appearance-none focus:ring-0  peer" placeholder=" " autocomplete="on" required="">
+                                <label for="username" class="absolute text-sm text-gray-400 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-[#09090d] px-2 peer-focus:px-2 peer-focus:text-blue-600 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-1">Username</label>
+                            </div>
 
-        echo api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "Initialized",
-            "sessionid" => $sessionid,
-            "appinfo" => array(
-                "numUsers" => "$numUsers",
-                "numOnlineUsers" => "$numOnlineUsers",
-                "numKeys" => "$numKeys",
-                "version" => "$currentver",
-                "customerPanelLink" => "https://keyauth.cc/panel/$owner/$name/"
-            )
-        )), $secret);
+                            <div class="relative mb-4" data-password="1">
+                                <input type="password" id="password" name="password" class="block px-2.5 pb-2.5 pt-4 w-full text-sm text-white bg-transparent rounded-lg border-1 border-border-gray-300 appearance-none focus:ring-0  peer" placeholder=" " autocomplete="on" required="">
+                                <label for="password" class="absolute text-sm text-gray-400 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-[#09090d] px-2 peer-focus:px-2 peer-focus:text-blue-600 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-1">Password</label>
+                            </div>
 
-        fastcgi_finish_request();
+                            <div class="relative mb-4" data-twofactor="1">
+                                <input type="text" id="keyauthtwofactor" name="keyauthtwofactor" class="block px-2.5 pb-2.5 pt-4 w-full text-sm text-white bg-transparent rounded-lg border-1 border-border-gray-300 appearance-none focus:ring-0  peer" placeholder=" " autocomplete="on">
+                                <label for="keyauthtwofactor" class="absolute text-sm text-gray-400 duration-300 transform -translate-y-4 scale-75 top-2 z-10 origin-[0] bg-[#09090d] px-2 peer-focus:px-2 peer-focus:text-blue-600 peer-placeholder-shown:scale-100 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:top-1/2 peer-focus:top-2 peer-focus:scale-75 peer-focus:-translate-y-4 left-1">2FA
+                                    <span class="text-xs">(Two Factor Authentication)</span></label>
+                            </div>
 
-        if($newSession) {
-            misc\cache\insert("keyauthState:$secret:$sessionid", serialize(array("credential" => NULL, "enckey" => $enckey, "validated" => 0)), $sessionexpiry);
-            $time = time() + $sessionexpiry;
-            misc\mysql\query("INSERT INTO `sessions` (`id`, `app`, `expiry`, `created_at`, `enckey`,`ip`) VALUES (?, ?, ?, ?, ?, ?)", [$sessionid, $secret, $time, time(), $enckey, $ip]);
-            $session = api\shared\primary\getSession($sessionid, $secret);
-            $enckey = $session["enckey"];
-            misc\cache\insert("keyauthSessionDupe:$secret:$ip", $sessionid, $sessionexpiry);
-        }
+                            <button name="login" data-loginbutton="1" class="text-white border-2 hover:bg-white hover:text-black focus:ring-0 focus:outline-none transition duration-200 font-medium rounded-lg text-sm px-5 py-2.5 text-center items-center mb-3 w-full mt-10">
+                                <span class="inline-flex">
+                                    Login Now
+                                    <svg class="w-3.5 h-3.5 ml-2 mt-1" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 10">
+                                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 5h12m0 0L9 1m4 4L9 9"></path>
+                                    </svg></span>
+                            </button>
 
-    case 'register':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
+                            <div class="text-sm font-medium text-white mb-4">
+                                Forgot your password? <a href="../forgot/" class="hover:underline text-blue-500">Reset
+                                    It</a> Now!
+                            </div>
 
-        // Read in username
-        $username = misc\etc\sanitize(api\v1_0\Decrypt($_POST['username'], $enckey));
+                            <div class="text-sm font-medium text-white">
+                                Need an Account? <a href="../register/" class="hover:underline text-blue-500">Register</a>
+                            </div>
+                        <?php
+                        }
 
-        if(strlen($username) > 70) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Username must be shorter than 70 characters"
-            )), $enckey));
-        }
+                        ?>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
 
-        // Read in license key
-        $checkkey = misc\etc\sanitize(api\v1_0\Decrypt($_POST['key'], $enckey));
+    <footer class="mt-32">
+        <div class="p-4 py-6 mx-auto max-w-screen-xl md:p-8 lg:-10 pt-32 md:pt-0">
+            <div class="grid grid-cols-2 gap-8 lg:grid-cols-6">
+                <div class="col-span-2">
+                    <a href="../" class="flex items-center mb-2 text-2xl font-semibold text-white lg:mb-0">
+                        UMAR AUTH LLC
+                    </a>
+                    <p class="my-4 font-light text-gray-400">
+                        UMAR AUTH is a game-changing, affordable and easy to use licensing solution for your software.
+                    </p>
+                    <ul class="flex mt-5 space-x-6">
+                        <li>
+                            <a target="_blank" href="https://youtube.com/keyauth" class="hover:text-white text-gray-400">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M21.593 7.203a2.506 2.506 0 0 0-1.762-1.766c-1.566-.43-7.83-.437-7.83-.437s-6.265-.007-7.832.404a2.56 2.56 0 0 0-1.766 1.778c-.413 1.566-.417 4.814-.417 4.814s-.004 3.264.406 4.814c.23.857.905 1.534 1.763 1.765 1.582.43 7.83.437 7.83.437s6.265.007 7.831-.403a2.515 2.515 0 0 0 1.767-1.763c.414-1.565.417-4.812.417-4.812s.02-3.265-.407-4.831ZM9.996 15.005l.005-6 5.207 3.005-5.212 2.995Z">
+                                    </path>
+                                </svg>
+                            </a>
+                        </li>
+                        <li>
+                            <a target="_blank" href="https://github.com/KeyAuth/" class="hover:text-white text-gray-400">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" d="M12.026 2a9.973 9.973 0 0 0-9.974 9.974c0 4.406 2.857 8.145 6.82 9.465.5.09.68-.217.68-.481 0-.237-.008-.865-.011-1.696-2.775.602-3.361-1.338-3.361-1.338-.452-1.152-1.107-1.459-1.107-1.459-.905-.619.069-.605.069-.605 1.002.07 1.527 1.028 1.527 1.028.89 1.524 2.336 1.084 2.902.829.09-.645.35-1.085.635-1.334-2.214-.251-4.542-1.107-4.542-4.93 0-1.087.389-1.979 1.024-2.675-.101-.253-.446-1.268.099-2.64 0 0 .837-.269 2.742 1.021a9.582 9.582 0 0 1 2.496-.336 9.555 9.555 0 0 1 2.496.336c1.906-1.291 2.742-1.021 2.742-1.021.545 1.372.203 2.387.099 2.64.64.696 1.024 1.587 1.024 2.675 0 3.833-2.33 4.675-4.552 4.922.355.308.675.916.675 1.846 0 1.334-.012 2.41-.012 2.737 0 .267.178.577.687.479C19.146 20.115 22 16.379 22 11.974 22 6.465 17.535 2 12.026 2Z" clip-rule="evenodd"></path>
+                                </svg>
+                            </a>
+                        </li>
+                        <li>
+                            <a target="_blank" href="https://twitter.com/UMAR AUTH" class="hover:text-white text-gray-400">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M19.633 7.994c.013.175.013.349.013.523 0 5.325-4.053 11.46-11.46 11.46A11.38 11.38 0 0 1 2 18.169c.324.037.636.05.973.05a8.07 8.07 0 0 0 5.001-1.721 4.036 4.036 0 0 1-3.767-2.793c.249.037.499.062.761.062.361 0 .724-.05 1.061-.137a4.027 4.027 0 0 1-3.23-3.953v-.05a4.05 4.05 0 0 0 1.82.51 4.022 4.022 0 0 1-1.796-3.353c0-.748.199-1.434.548-2.032a11.457 11.457 0 0 0 8.306 4.215c-.062-.3-.1-.611-.1-.923a4.024 4.024 0 0 1 4.028-4.028c1.16 0 2.207.486 2.943 1.272a7.957 7.957 0 0 0 2.556-.973c-.3.93-.93 1.72-1.771 2.22a8.074 8.074 0 0 0 2.319-.624 8.646 8.646 0 0 1-2.019 2.083Z">
+                                    </path>
+                                </svg>
+                            </a>
+                        </li>
+                        <li>
+                            <a target="_blank" href="#" class="hover:text-white text-gray-400">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M11.999 7.375a4.624 4.624 0 1 0 0 9.248 4.624 4.624 0 0 0 0-9.248Zm0 7.627a3.004 3.004 0 1 1 0-6.008 3.004 3.004 0 0 1 0 6.008Z">
+                                    </path>
+                                    <path d="M16.805 8.289a1.078 1.078 0 1 0 0-2.156 1.078 1.078 0 0 0 0 2.156Z"></path>
+                                    <path d="M20.533 6.114A4.605 4.605 0 0 0 17.9 3.482a6.607 6.607 0 0 0-2.186-.42c-.963-.042-1.268-.054-3.71-.054s-2.755 0-3.71.054a6.554 6.554 0 0 0-2.184.42 4.6 4.6 0 0 0-2.633 2.632A6.585 6.585 0 0 0 3.058 8.3c-.043.962-.056 1.267-.056 3.71 0 2.442 0 2.753.056 3.71.015.748.156 1.486.419 2.187a4.61 4.61 0 0 0 2.634 2.632 6.583 6.583 0 0 0 2.185.45c.963.042 1.268.055 3.71.055s2.755 0 3.71-.055a6.616 6.616 0 0 0 2.186-.42 4.613 4.613 0 0 0 2.633-2.632c.263-.7.404-1.438.419-2.186.043-.962.056-1.267.056-3.71s0-2.753-.056-3.71a6.583 6.583 0 0 0-.421-2.217Zm-1.218 9.532a5.046 5.046 0 0 1-.311 1.688 2.987 2.987 0 0 1-1.712 1.71c-.535.2-1.1.305-1.67.312-.95.044-1.218.055-3.654.055-2.438 0-2.687 0-3.655-.055a4.961 4.961 0 0 1-1.67-.311 2.985 2.985 0 0 1-1.718-1.711 5.08 5.08 0 0 1-.311-1.67c-.043-.95-.053-1.217-.053-3.653 0-2.437 0-2.686.053-3.655a5.038 5.038 0 0 1 .311-1.687c.305-.79.93-1.41 1.719-1.712a5.01 5.01 0 0 1 1.669-.311c.95-.043 1.218-.055 3.655-.055s2.687 0 3.654.055a4.96 4.96 0 0 1 1.67.31 2.99 2.99 0 0 1 1.712 1.713 5.06 5.06 0 0 1 .311 1.669c.043.95.054 1.218.054 3.655 0 2.436 0 2.698-.043 3.654h-.011v-.001Z">
+                                    </path>
+                                </svg>
+                            </a>
+                        </li>
+                        <li>
+                            <a target="_blank" href="https://www.tiktok.com/@keyauth" class="hover:text-white text-gray-400">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.298-.002.595.042.88.13V9.4A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1h-.04Z">
+                                    </path>
+                                </svg>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="lg:mx-auto">
+                    <h3 class="mb-6 text-sm font-semibold uppercase text-white">Links</h3>
+                    <ul class="text-gray-500 ">
+                        <li class="mb-4">
+                            <a href="https://www.youtube.com/keyauth" target="_blank" class="hover:underline">Youtube</a>
+                        </li>
+                        <li class="mb-4">
+                            <a href="https://linkedin.com" target="_blank" class="hover:underline">Linkedin</a>
+                        </li>
+                        <li class="mb-4">
+                            <a href="https://github.com/KeyAuth" target="_blank" class="hover:underline">GitHub</a>
+                        </li>
+                        <li class="mb-4">
+                            <a href="https://keyauth.readme.io" target="_blank" class="hover:underline">Documentation</a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="lg:mx-auto">
+                    <h2 class="mb-6 text-sm font-semibold uppercase text-white">
+                        Most Used Examples
+                    </h2>
+                    <ul class="text-gray-500 ">
+                        <li class="mb-4">
+                            <a target="_blank" href="https://github.com/KeyAuth/UMAR AUTH-CPP-Example" class="hover:underline">
+                                C++ <span class="text-xs">(CPP)</span>
+                            </a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="https://github.com/KeyAuth/UMAR AUTH-CSHARP-Example" class="hover:underline">C# <span class="text-xs">(CSharp)</span></a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="https://github.com/mazkdevf/UMAR AUTH-JS-Example" class="hover:underline">JavaScript <span class="text-xs">(JS)</span></a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="https://github.com/KeyAuth/UMAR AUTH-Python-Example" class="hover:underline">Python <span class="text-xs">(PY)</span></a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="lg:mx-auto">
+                    <h2 class="mb-6 text-sm font-semibold uppercase text-white">Other & Support</h2>
+                    <ul class="text-gray-500 ">
+                        <li class="mb-4">
+                            <a target="_blank" href="https://keyauth.tawk.help" class="hover:underline">
+                                Support Center
+                            </a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="../free-trial/" class="hover:underline">
+                                Demo Accounts
+                            </a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="https://t.me/keyauth" class="hover:underline">
+                                Telegram
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="lg:mx-auto">
+                    <h2 class="mb-6 text-sm font-semibold uppercase text-white">Legal</h2>
+                    <ul class="text-gray-500 ">
+                        <li class="mb-4">
+                            <a target="_blank" href="../terms" class="hover:underline">Terms of Service</a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="../terms#privacy" class="hover:underline">Privacy Policy</a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="https://github.com/KeyAuth/UMAR AUTH-Source-Code/blob/main/LICENSE" class="hover:underline">Licensing</a>
+                        </li>
+                        <li class="mb-4">
+                            <a target="_blank" href="../gdpr" class="hover:underline">GDPR</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <hr class="my-6 border-[#0f0f17] sm:mx-auto lg:my-8">
 
-        if(strlen($checkkey) > 70) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Key must be shorter than 70 characters"
-            )), $enckey));
-        }
+            <span class="block mb-6 text-sm text-gray-400 lg:mb-0 text-center">© 2020 - 2023 <a href="../" class="hover:underline">UMAR AUTH LLC</a>. All Rights Reserved.
+            </span>
+        </div>
+    </footer>
 
-        // Read in password
-        $password = misc\etc\sanitize(api\v1_0\Decrypt($_POST['pass'], $enckey));
+    <!-- jqeury -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 
-        // Read in email
-        $email = misc\etc\sanitize(api\v1_0\Decrypt($_POST['email'], $enckey));
-
-        // Read in hwid
-        $hwid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['hwid'], $enckey));
-
-        $resp = api\v1_0\register($username, $checkkey, $password, $email, $hwid, $secret);
-        switch ($resp) {
-            case 'username_taken':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$usernametaken"
-                )), $enckey));
-            case 'key_not_found':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keynotfound"
-                )), $enckey));
-            case 'un_too_short':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$unTooShort"
-                )), $enckey));
-            case 'pw_leaked':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$pwLeaked"
-                )), $enckey));
-            case 'key_already_used':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keyused"
-                )), $enckey));
-            case 'key_banned':
-                if (strpos($keybanned, '{reason}') !== false) {
-                    $query = misc\mysql\query("SELECT `banned` FROM `keys` WHERE `app` = ? AND `key` = ?", [$secret, $checkkey]);
-                    $row = mysqli_fetch_array($query->result);
-                    $reason = $row['banned'];
-                    $keybanned = str_replace("{reason}", $reason, $keybanned);
-                }
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keybanned"
-                )), $enckey));
-            case 'hwid_blacked':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$hwidblacked"
-                )), $enckey));
-            case 'no_subs_for_level':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$nosublevel"
-                )), $enckey));
-            default:
-                misc\mysql\query("UPDATE `sessions` SET `credential` = ?,`validated` = 1 WHERE `id` = ? AND `app` = ?", [$username, $sessionid, $secret]);
-                misc\cache\update('keyauthState:'.$secret.':'.$sessionid.'', array("validated" => 1, "credential" => $username));
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => true,
-                    "message" => "$loggedInMsg",
-                    "info" => $resp
-                )), $enckey));
-        }
-    case 'upgrade':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        // Read in username
-        $username = misc\etc\sanitize(api\v1_0\Decrypt($_POST['username'], $enckey));
-
-        // Read in key
-        $checkkey = misc\etc\sanitize(api\v1_0\Decrypt($_POST['key'], $enckey));
+    <!--Flowbite JS-->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flowbite/2.3.0/flowbite.min.js"></script>
 
 
-        // search for key
-        $query = misc\mysql\query("SELECT `banned`, `expires`, `status`, `level` FROM `keys` WHERE `key` = ? AND `app` = ?", [$checkkey, $secret]);
+    <?php
+    if (isset($_POST['login'])) {
+        $username = misc\etc\sanitize($_POST['username']);
+        $password = misc\etc\sanitize($_POST['password']);
 
-        // check if key exists
+        $query = misc\mysql\query("SELECT * FROM `accounts` WHERE `username` = ?", [$username]);
+
         if ($query->num_rows < 1) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$keynotfound"
-            )), $enckey));
+            dashboard\primary\error("Account doesn't exist!");
+            return;
         }
-        // if key does exist
-        elseif ($query->num_rows > 0) {
-            // get key info
+        while ($row = mysqli_fetch_array($query->result)) {
+            $user = $row['username'];
+            $pass = $row['password'];
+            $id = $row['ownerid'];
+            $email = $row['email'];
+            $role = $row['role'];
+            $app = misc\etc\sanitize($row['app']);
+            $banned = $row['banned'];
+            $locked = $row['locked'];
+            $img = $row['img'];
+
+            $owner = misc\etc\sanitize($row['owner']);
+            $twofactor_optional = $row['twofactor'];
+            $acclogs = $row['acclogs'];
+            $google_Code = $row['googleAuthCode'];
+
+            $regionSaved = $row['region'];
+            $asNumSaved = $row['asNum'];
+            $emailVerify = $row['emailVerify'];
+            $securityKey = $row['securityKey'];
+        }
+
+        if (!is_null($banned)) {
+            dashboard\primary\error("Banned: Reason: " . misc\etc\sanitize($banned));
+            return;
+        }
+
+        if (!password_verify($password, $pass)) {
+            dashboard\primary\error("Password is invalid!");
+            return;
+        }
+        
+        if ($locked) {
+            header("location: ./accShare/");
+            die();
+        }
+        
+        // BREACH CHECK TEMPORARILY DISABLED FOR LOCAL SELF-HOSTED (weak-password accounts like CHILDUSER/IRFAN)
+        // if (misc\etc\isBreached($password)) {
+        //     dashboard\primary\wh_log($logwebhook, "{$username} attempted to login with leaked password `{$password}`", $webhookun);
+        //     dashboard\primary\error("Password has been leaked in a data breach (not from us)! You must click Forgot Password and change password.");
+        //     return;
+        // }
+        
+        $ip = api\shared\primary\getIp();
+        
+        /*
+        * Email verification
+        * For paid customers, checks if ISP and region (aka state) match. If not, they must verify it's them via an email.
+        * Customers can opt to disable email verification.
+        * This code is also used to notify the UMAR AUTH owner of account sharing, since that's against our ToS.
+        */
+        if (in_array($role, array("developer", "seller")) && $username != "demoseller" && $username != "demodeveloper" && !empty($awsAccessKey)) {
+            $url = "http://ip-api.com/json/{$ip}?fields=16910340"; // returns fields: region,as,proxy,hosting
+
+            $curl = curl_init($url);
+            curl_setopt($curl, CURLOPT_URL, $url);
+            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+
+            $resp = curl_exec($curl);
+            $httpcode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+            
+            if($httpcode == 429) {
+                dashboard\primary\wh_log($logwebhook, "<@1138519014734319706> IP checking is rate limited", $webhookun);
+                dashboard\primary\error("Login location is rate-limited! Please try again in a minute or so.");
+                return;
+            }
+            else {
+                $json = json_decode($resp, true);
+                $region = $json["region"];
+                $asNum = explode(" ", $json["as"])[0];
+                if (!is_null($asNumSaved)) {
+                    if ($asNum != $asNumSaved || $region != $regionSaved) {
+                        // if user not using VPN and IP location changed, notify UMAR AUTH owner of account sharing
+                        if(!$json->proxy && !$json->hosting && $region != $regionSaved) {
+                            dashboard\primary\wh_log($logwebhook, "user `{$username}` detected account sharing **IP Address:** `{$ip}` **Old AS:** {$asNumSaved} **New AS:** {$asNum} **Old Region:** {$regionSaved} **New Region:** {$region}", $webhookun);
+                            if(!$emailVerify) {
+                                misc\mysql\query("UPDATE `accounts` SET `region` = ?,`asNum` = ?,`lastip` = ? WHERE `username` = ?",[$region, $asNum, $ip, $username]);
+                            }
+                        }
+                        
+                        if($emailVerify) { // only require email verification if enabled.
+                            if ($twofactor_optional) {
+                                // 2FA verification on new login location
+                                $twofactor = misc\etc\sanitize($_POST['keyauthtwofactor']);
+                                if (empty($twofactor)) {
+                                    dashboard\primary\error("Please enter 2FA code!");
+                                    return;
+                                }
+        
+                                require_once '../auth/GoogleAuthenticator.php';
+                                $gauth = new GoogleAuthenticator();
+                                $checkResult = $gauth->verifyCode($google_Code, $twofactor, 2);
+        
+                                if (!$checkResult) {
+                                    dashboard\primary\error("Invalid 2FA code! Make sure your device time settings are synced.");
+                                    return;
+                                }
+                                
+                                misc\mysql\query("UPDATE `accounts` SET `region` = ?,`asNum` = ?,`lastip` = ? WHERE `username` = ?",[$region, $asNum, $ip, $username]);
+                            } else {
+                                // email verification on new login location
+                                header("location: ./emailVerify/");
+                                die();
+                            }
+                        }
+                    }
+                }
+                else {
+                    misc\mysql\query("UPDATE `accounts` SET `region` = ?,`asNum` = ?,`lastip` = ? WHERE `username` = ?",[$region, $asNum, $ip, $username]);
+                }
+            }
+        }
+        
+        if((!$emailVerify || $role == "tester") && $twofactor_optional) {
+            require_once '../auth/GoogleAuthenticator.php';
+            $gauth = new GoogleAuthenticator();
+            $twofactor = misc\etc\sanitize($_POST['keyauthtwofactor']);
+            $checkResult = $gauth->verifyCode($google_Code, $twofactor, 2);
+
+            if (!$checkResult) {
+                dashboard\primary\error("Invalid 2FA code! Make sure your device time settings are synced.");
+                return;
+            }
+        }
+
+        $_SESSION['username'] = $username;
+        $_SESSION['ownerid'] = $id;
+        $_SESSION['role'] = $role;
+        $_SESSION['logindate'] = time();
+        $_SESSION['img'] = $img;
+        
+        if($securityKey) {
+            // set a temporary session variable to be used until the user completes WebAuthn
+            unset($_SESSION['username']);
+            $_SESSION['pendingUsername'] = $username;
+            header("location: ./securityKey.html");
+            die();
+        }
+
+        if ($role == "Reseller" || $role == "Manager") {
+            ($query = misc\mysql\query("SELECT `secret`, `ownerid` FROM `apps` WHERE `name` = ? AND `owner` = ?",[$app, $owner]));
+            if ($query->num_rows < 1) {
+                dashboard\primary\error("Application you're assigned to no longer exists!");
+                return;
+            }
             while ($row = mysqli_fetch_array($query->result)) {
-                $expires = $row['expires'];
-                $status = $row['status'];
-                $level = $row['level'];
-                $banned = $row['banned'];
+                $secret = $row["secret"];
+                $ownerid = $row["ownerid"];
             }
-
-            // check if used
-            if ($status == "Used") {
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keyused"
-                )), $enckey));
-            }
-
-            if (!is_null($banned)) {
-                if (strpos($keybanned, '{reason}') !== false) {
-                    $keybanned = str_replace("{reason}", $banned, $keybanned);
-                }
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keybanned"
-                )), $enckey));
-            }
-
-            // add current time to key time
-            $expiry = $expires + time();
-
-            $query = misc\mysql\query("SELECT `name` FROM `subscriptions` WHERE `app` = ? AND `level` = ?", [$secret, $level]);
-            $subName = mysqli_fetch_array($query->result)['name'];
-
-            $resp = misc\user\extend($username, $subName, $expiry, 0, $secret);
-            switch ($resp) {
-                case 'missing':
-                    die(api\v1_0\Encrypt(json_encode(array(
-                        "success" => false,
-                        "message" => "$usernamenotfound"
-                    )), $enckey));
-                case 'sub_missing':
-                    die(api\v1_0\Encrypt(json_encode(array(
-                        "success" => false,
-                        "message" => "$nosublevel"
-                    )), $enckey));
-                case 'failure':
-                    die(api\v1_0\Encrypt(json_encode(array(
-                        "success" => false,
-                        "message" => "Failed to upgrade for some reason."
-                    )), $enckey));
-                case 'success':
-                    // set key to used, and set usedby
-                    misc\mysql\query("UPDATE `keys` SET `status` = 'Used', `usedon` = ?, `usedby` = ? WHERE `key` = ? AND `app` = ?", [time(), $username, $checkkey, $secret]);
-                    misc\cache\purge('keyauthKeys:' . $secret . ':' . $checkkey);
-                    misc\cache\purge('keyauthSubs:' . $secret . ':' . $username);
-                    die(api\v1_0\Encrypt(json_encode(array(
-                        "success" => true,
-                        "message" => "Upgraded successfully"
-                    )), $enckey));
-                default:
-                    die(api\v1_0\Encrypt(json_encode(array(
-                        "success" => false,
-                        "message" => "Unhandled Error! Contact us if you need help"
-                    )), $enckey));
-            }
+            $_SESSION['app'] = $secret;
+            $_SESSION['name'] = $app;
+            $_SESSION['ownerid'] = $ownerid;
         }
-
-    case 'login':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        // Read in username
-        $username = misc\etc\sanitize(api\v1_0\Decrypt($_POST['username'], $enckey));
-
-        // Read in HWID
-        $hwid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['hwid'], $enckey));
-
-        // Read in password
-        $password = misc\etc\sanitize(api\v1_0\Decrypt($_POST['pass'], $enckey));
-
-        if(strlen($hwid) < $minHwid && !is_null($hwid)) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "HWID must be {$minHwid} or more characters, change this in app settings."
-            )), $enckey));
-        }
-
-        if($forceHwid && is_null($hwid)) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Force HWID is enabled, disable in app settings if you want to use blank HWIDs"
-            )), $enckey));
-        }
-
-        $resp = api\v1_0\login($username, $password, $hwid, $secret, $hwidenabled);
-        switch ($resp) {
-            case 'un_not_found':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$usernamenotfound"
-                )), $enckey));
-            case 'pw_mismatch':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$passmismatch"
-                )), $enckey));
-            case 'user_banned':
-                if (strpos($userbanned, '{reason}') !== false) {
-                    $query = misc\mysql\query("SELECT `banned` FROM `users` WHERE `app` = ? AND `username` = ?", [$secret, $username]);
-                    $row = mysqli_fetch_array($query->result);
-                    $reason = $row['banned'];
-                    $userbanned = str_replace("{reason}", $reason, $userbanned);
-                }
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$userbanned"
-                )), $enckey));
-            case 'hwid_mismatch':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$hwidmismatch"
-                )), $enckey));
-            case 'hwid_blacked':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$hwidblacked"
-                )), $enckey));
-            case 'sub_paused':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$pausedsub"
-                )), $enckey));
-            case 'no_active_subs':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$noactivesubs"
-                )), $enckey));
-            default:
-                misc\mysql\query("UPDATE `sessions` SET `validated` = 1,`credential` = ? WHERE `id` = ? AND `app` = ?", [$username, $sessionid, $secret]);
-                misc\cache\update('keyauthState:'.$secret.':'.$sessionid.'', array("validated" => 1, "credential" => $username));
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => true,
-                    "message" => "$loggedInMsg",
-                    "info" => $resp
-                )), $enckey));
-        }
-
-    case 'license':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-        $checkkey = misc\etc\sanitize(api\v1_0\Decrypt($_POST['key'], $enckey));
-
-        if(strlen($checkkey) > 70) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Key must be shorter than 70 characters"
-            )), $enckey));
-        }
-
-        $hwid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['hwid'], $enckey));
-
-        if(strlen($hwid) < $minHwid && !is_null($hwid)) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "HWID must be {$minHwid} or more characters, change this in app settings."
-            )), $enckey));
-        }
-
-        if($forceHwid && is_null($hwid)) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Force HWID is enabled, disable in app settings if you want to use blank HWIDs"
-            )), $enckey));
-        }
-
-        $resp = api\v1_0\login($checkkey, $checkkey, $hwid, $secret, $hwidenabled);
-        switch ($resp) {
-            case 'un_not_found':
-                break; // user not registered yet or user was deleted
-            case 'hwid_mismatch':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$hwidmismatch"
-                )), $enckey));
-            case 'user_banned':
-                if (strpos($userbanned, '{reason}') !== false) {
-                    $query = misc\mysql\query("SELECT `banned` FROM `users` WHERE `app` = ? AND `username` = ?", [$secret, $checkkey]);
-                    $row = mysqli_fetch_array($query->result);
-                    $reason = $row['banned'];
-                    $userbanned = str_replace("{reason}", $reason, $userbanned);
-                }
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$userbanned"
-                )), $enckey));
-            case 'pw_mismatch':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$passmismatch"
-                )), $enckey));
-            case 'sub_paused':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$pausedsub"
-                )), $enckey));
-            case 'hwid_blacked':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$hwidblacked"
-                )), $enckey));
-            case 'no_active_subs':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$noactivesubs"
-                )), $enckey));
-            default:
-                misc\mysql\query("UPDATE `sessions` SET `validated` = 1,`credential` = ? WHERE `id` = ?", [$checkkey, $sessionid]);
-                misc\cache\update('keyauthState:'.$secret.':'.$sessionid.'', array("validated" => 1, "credential" => $checkkey));
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => true,
-                    "message" => "$loggedInMsg",
-                    "info" => $resp
-                )), $enckey));
-        }
-
-        // if login didn't work, attempt to register
-        $resp = api\v1_0\register($checkkey, $checkkey, $checkkey, NULL, $hwid, $secret);
-        switch ($resp) {
-            case 'username_taken':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$usernametaken"
-                )), $enckey));
-            case 'key_not_found':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keynotfound"
-                )), $enckey));
-            case 'un_too_short':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "Username too short, try longer one."
-                )), $enckey));
-            case 'pw_leaked':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$pwLeaked"
-                )), $enckey));
-            case 'key_already_used':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keyused"
-                )), $enckey));
-            case 'key_banned':
-                if (strpos($keybanned, '{reason}') !== false) {
-                    $query = misc\mysql\query("SELECT `banned` FROM `keys` WHERE `app` = ? AND `key` = ?", [$secret, $checkkey]);
-                    $row = mysqli_fetch_array($query->result);
-                    $reason = $row['banned'];
-                    $keybanned = str_replace("{reason}", $reason, $keybanned);
-                }
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$keybanned"
-                )), $enckey));
-            case 'hwid_blacked':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$hwidblacked"
-                )), $enckey));
-            case 'no_subs_for_level':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$nosublevel"
-                )), $enckey));
-            default:
-                misc\mysql\query("UPDATE `sessions` SET `validated` = 1,`credential` = ? WHERE `id` = ?", [$checkkey, $sessionid]);
-                misc\cache\update('keyauthState:'.$secret.':'.$sessionid.'', array("validated" => 1, "credential" => $checkkey));
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => true,
-                    "message" => "$loggedInMsg",
-                    "info" => $resp
-                )), $enckey));
-        }
-    case 'fetchOnline':
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        $rows = misc\cache\fetch('keyauthOnlineUsers:' . $secret, "SELECT DISTINCT CONCAT(LEFT(`credential`, 10), IF(LENGTH(`credential`) > 10, REPEAT('*', LENGTH(`credential`) - 10), '')) AS `credential` FROM `sessions` WHERE `validated` = 1 AND `app` = ?", [$secret], 1, 1800);
-
-        if ($rows == "not_found") {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "No online users found!"
-            )), $enckey));
-        }
-
-        die(api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "Successfully fetched online users.",
-            "users" => $rows
-        )), $enckey));
-    case 'setvar':
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-        if (!$session["validated"]) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$sessionunauthed"
-            )), $enckey));
-        }
-
-        $var = misc\etc\sanitize(api\v1_0\Decrypt($_POST['var'], $enckey));
-        $data = misc\etc\sanitize(api\v1_0\Decrypt($_POST['data'], $enckey));
-
-        if(is_null($var)) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "No variable name provided"
-            )), $enckey));
-        }
-
-        if(is_null($data)) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "No variable data provided"
-            )), $enckey));
-        }
-
-        if(strlen($data) > 500) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Variable data must be 500 characters or less"
-            )), $enckey));
-        }
-
-        $row = misc\cache\fetch('keyauthUserVar:' . $secret . ':' . $var . ':' . $session["credential"], "SELECT `data`, `readOnly` FROM `uservars` WHERE `name` = ? AND `user` = ? AND `app` = ?", [$var, $session["credential"], $secret], 0);
-
-        if ($row != "not_found") {
-            $readOnly = $row["readOnly"];
-            if ($readOnly) {
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "Variable is read only"
-                )), $enckey));
-            }
-        }
-
-        $query = misc\mysql\query("REPLACE INTO `uservars` (`name`, `data`, `user`, `app`) VALUES (?, ?, ?, ?)", [$var, $data, $session["credential"], $secret]);
-
-        if ($query->affected_rows != 0) {
-            misc\cache\purge('keyauthUserVar:' . $secret . ':' . $var . ':' . $session["credential"]);
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => true,
-                "message" => "Successfully set variable"
-            )), $enckey));
-        } else {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Failed to set variable"
-            )), $enckey));
-        }
-    case 'getvar':
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-        if (!$session["validated"]) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$sessionunauthed"
-            )), $enckey));
-        }
-
-        $var = misc\etc\sanitize(api\v1_0\Decrypt($_POST['var'], $enckey));
-
-        $row = misc\cache\fetch('keyauthUserVar:' . $secret . ':' . $var . ':' . $session["credential"], "SELECT `data`, `readOnly` FROM `uservars` WHERE `name` = ? AND `user` = ? AND `app` = ?", [$var, $session["credential"], $secret], 0);
-
-        if ($row == "not_found") {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Variable not found for user"
-            )), $enckey));
-        }
-
-        $data = $row['data'];
-        die(api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "Successfully retrieved variable",
-            "response" => $data
-        )), $enckey));
-    case 'var':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        $varid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['varid'], $enckey));
-        $row = misc\cache\fetch('keyauthVar:' . $secret . ':' . $varid, "SELECT `msg`, `authed` FROM `vars` WHERE `varid` = ? AND `app` = ?", [$varid, $secret], 0);
-        if ($row == "not_found") {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Variable not found."
-            )), $enckey));
-        }
-
-        $msg = $row['msg'];
-        $authed = $row['authed'];
-
-        if ($authed) // if variable requires user to be authenticated
-
+        
+        if ($acclogs) // check if account logs enabled
         {
-            if (!$session["validated"]) {
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$sessionunauthed"
-                )), $enckey));
-            }
+            $ua = misc\etc\sanitize($_SERVER['HTTP_USER_AGENT']);
+            misc\mysql\query("INSERT INTO `acclogs`(`username`, `date`, `ip`, `useragent`) VALUES (?, ?, ?, ?);",[$username, time(), $ip, $ua]); // insert ip log
+            $ts = time() - 604800;
+            misc\mysql\query("DELETE FROM `acclogs` WHERE `username` = ? AND `date` < ?",[$username, $ts]); // delete any account logs more than a week old
         }
-        die(api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "$msg"
-        )), $enckey));
-    case 'checkblacklist':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
+        
+        if(strtolower($username) != "itsnetworking") {
+            dashboard\primary\wh_log($logwebhook, "{$username} has logged into UMAR AUTH with IP `{$ip}`", $webhookun);
+        }
 
-        $hwid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['hwid'], $enckey));
-        $ip = api\shared\primary\getIp();
-        $row = misc\cache\fetch('keyauthBlacklist:' . $secret . ':' . $ip . ':' . $hwid, "SELECT 1 FROM `bans` WHERE (`hwid` = ? OR `ip` = ?) AND `app` = ?", [$hwid, $ip, $secret], 0);
-
-        if ($row != "not_found") {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => true,
-                "message" => "Client is blacklisted"
-            )), $enckey));
+        if ($role == "Reseller") {
+            header("location: ../app/?page=reseller-licenses");
+        } else if (!is_null($_SESSION['oldUrl'])) {
+            header("location: " . $_SESSION['oldUrl']);
         } else {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Client is not blacklisted"
-            )), $enckey));
+            header("location: ../app/");
         }
-    case 'chatget':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-        if (!$session["validated"]) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$sessionunauthed"
-            )), $enckey));
-        }
+    }?>
+</body>
 
-        $channel = misc\etc\sanitize(api\v1_0\Decrypt($_POST['channel'], $enckey));
-        $rows = misc\cache\fetch('keyauthChatMsgs:' . $secret . ':' . $channel, "SELECT `author`, `message`, `timestamp` FROM `chatmsgs` WHERE `channel` = ? AND `app` = ?", [$channel, $secret], 1);
-
-        if ($rows == "not_found") {
-            $rows = [];
-        }
-
-        die(api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "Successfully retrieved chat messages",
-            "messages" => $rows
-        )), $enckey));
-    case 'chatsend':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-        if (!$session["validated"]) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$sessionunauthed"
-            )), $enckey));
-        }
-
-        $channel = misc\etc\sanitize(api\v1_0\Decrypt($_POST['channel'], $enckey));
-        $query = misc\mysql\query("SELECT `delay` FROM `chats` WHERE `name` = ? AND `app` = ?", [$channel, $secret]);
-
-        if ($query->num_rows < 1) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Chat channel not found"
-            )), $enckey));
-        }
-
-        $row = mysqli_fetch_array($query->result);
-        $delay = $row['delay'];
-        $credential = $session["credential"];
-        $query = misc\mysql\query("SELECT `timestamp` FROM `chatmsgs` WHERE `author` = ? AND `channel` = ? AND `app` = ? ORDER BY `id` DESC LIMIT 1", [$credential, $channel, $secret]);
-
-        $row = mysqli_fetch_array($query->result);
-        $time = $row['timestamp'];
-
-        if (time() - $time < $delay) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$chatHitDelay"
-            )), $enckey));
-        }
-
-        $query = misc\mysql\query("SELECT `time` FROM `chatmutes` WHERE `user` = ? AND `app` = ?", [$credential, $secret]);
-        if ($query->num_rows != 0) {
-            $row = mysqli_fetch_array($query->result);
-            $unmuted = $row["time"];
-            $unmuted = date("F j, Y, g:i a", $unmuted);
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "You're muted from chat until $unmuted"
-            )), $enckey));
-        }
-
-        $message = misc\etc\sanitize(api\v1_0\Decrypt($_POST['message'], $enckey));
-
-        if (is_null($message)) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Message can't be blank"
-            )), $enckey));
-        }
-
-        if(strlen($message) > 2000) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Message too long!"
-            )), $enckey));
-        }
-
-        misc\mysql\query("INSERT INTO `chatmsgs` (`author`, `message`, `timestamp`, `channel`,`app`) VALUES (?, ?, ?, ?, ?)", [$credential, $message, time(), $channel, $secret]);
-        misc\mysql\query("DELETE FROM `chatmsgs` WHERE `app` = ? AND `channel` = ? AND `id` NOT IN ( SELECT `id` FROM ( SELECT `id` FROM `chatmsgs` WHERE `channel` = ? AND `app` = ? ORDER BY `id` DESC LIMIT 50) foo );", [$secret, $channel, $channel, $secret]);
-        misc\cache\purge('keyauthChatMsgs:' . $secret . ':' . $channel);
-        die(api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "Successfully sent chat message"
-        )), $enckey));
-    case 'log':
-        // client isn't expecting a response body, just flush output right away so program can move on to rest of the code quicker
-        fastcgi_finish_request();
-
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        $credential = $session["credential"];
-
-        $currtime = time();
-
-        $msg = misc\etc\sanitize(api\v1_0\Decrypt($_POST['message'], $enckey));
-
-        if(is_null($msg)) {
-            die();
-        }
-
-        if(strlen($msg) > 275) {
-            die("Log data too long");
-        }
-
-        $pcuser = misc\etc\sanitize(api\v1_0\Decrypt($_POST['pcuser'], $enckey));
-
-        if (is_null($webhook)) {
-            $roleCheck = misc\cache\fetch('keyauthsellercheck:' . $owner, "SELECT `role`,`expires` FROM `accounts` WHERE `username` = ?", [$owner], 0);
-            if($roleCheck['role'] == "tester") {
-                $query = misc\mysql\query("SELECT count(*) AS 'numLogs' FROM `logs` WHERE `logapp` = ?",[$secret]);
-                $row = mysqli_fetch_array($query->result);
-                $numLogs = $row["numLogs"];
-                if($numLogs >= 20) {
-                    die();
-                }
-            }
-
-            misc\mysql\query("INSERT INTO `logs` (`logdate`, `logdata`, `credential`, `pcuser`,`logapp`) VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), ?)", [$currtime, $msg, $credential, $pcuser, $secret]);
-            die();
-        }
-
-        $credential = $session["credential"] ?? "N/A";
-
-        $msg = "📜 Log: " . $msg;
-
-        $ip = api\shared\primary\getIp();
-
-        $json_data = json_encode([
-            // Embeds Array
-            "embeds" => [
-                [
-                    // Embed Title
-                    "title" => $msg,
-
-                    // Embed left border color in HEX
-                    "color" => hexdec("00ffe1"),
-
-                    // Additional Fields array
-                    "fields" => [["name" => "🔐 Credential:", "value" => "```" . $credential . "```"], ["name" => "💻 PC Name:", "value" => "```" . $pcuser . "```", "inline" => true], ["name" => "🌎 Client IP:", "value" => "```" . $ip . "```", "inline" => true]]
-                ]
-            ]
-
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-        $ch = curl_init($webhook);
-
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-            'Content-type: application/json'
-        ));
-
-        curl_setopt($ch, CURLOPT_POST, 1);
-
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $json_data);
-
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
-
-        curl_setopt($ch, CURLOPT_HEADER, 0);
-
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-
-        $response = curl_exec($ch);
-
-        curl_close($ch);
-        die();
-
-    case 'webhook':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        $webid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['webid'], $enckey));
-
-        $row = misc\cache\fetch('keyauthWebhook:' . $secret . ':' . $webid, "SELECT `baselink`, `useragent`, `authed` FROM `webhooks` WHERE `webid` = ? AND `app` = ?", [$webid, $secret], 0);
-        if ($row == "not_found") {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Webhook Not Found."
-            )), $enckey));
-        }
-
-        $baselink = $row['baselink'];
-
-        $useragent = $row['useragent'];
-
-        $authed = $row['authed'];
-
-        if ($authed) // if variable requires user to be authenticated
-
-        {
-            if (!$session["validated"]) {
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$sessionunauthed"
-                )), $enckey));
-            }
-        }
-
-        $params = misc\etc\sanitize(api\v1_0\Decrypt($_POST['params'], $enckey));
-        $body = api\v1_0\Decrypt($_POST['body'], $enckey);
-        $contType = misc\etc\sanitize(api\v1_0\Decrypt($_POST['conttype'], $enckey));
-
-        $url = $baselink .= urldecode($params);
-
-        $ch = curl_init($url);
-
-        curl_setopt($ch, CURLOPT_USERAGENT, $useragent);
-
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-
-        if (!is_null($body)) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-
-        if (!is_null($contType)) curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-            'Content-Type: ' . $contType
-        ));
-
-        $response = curl_exec($ch);
-        die(api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "Webhook request successful",
-            "response" => "$response"
-        )), $enckey));
-    case 'file':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        $fileid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['fileid'], $enckey));
-
-        $row = misc\cache\fetch('keyauthFile:' . $secret . ':' . $fileid, "SELECT `name`, `url`, `authed` FROM `files` WHERE `app` = ? AND `id` = ?", [$secret, $fileid], 0);
-
-        if ($row == "not_found") {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "File not Found"
-            )), $enckey));
-        }
-
-        $filename = $row['name'];
-        $url = $row['url'];
-        $authed = $row['authed'];
-
-        if ($authed) // if file requires user to be authenticated
-
-        {
-            if (!$session["validated"]) {
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "$sessionunauthed"
-                )), $enckey));
-            }
-        }
-
-        ini_set('memory_limit', '-1');
-
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $data = curl_exec($ch);
-        $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-        if ($statusCode == 403 || $statusCode == 404) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "File no longer works, please notify the application developer."
-            )), $enckey));
-        }
-        $contents = bin2hex($data);
-        die(api\v1_0\Encrypt(json_encode(array(
-            "success" => true,
-            "message" => "File download successful",
-            "contents" => "$contents"
-        )), $enckey));
-
-    case 'ban':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        $credential = $session["credential"];
-        if (!$session["validated"]) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$sessionunauthed"
-            )), $enckey));
-        }
-
-        $reason = misc\etc\sanitize($_POST['reason']) ?? "User banned from triggering ban function in the client";
-
-        if(strlen($reason) > 99) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Reason must be 99 characters or less"
-            )), $enckey));
-        }
-
-        $hwid = misc\etc\sanitize(api\v1_0\Decrypt($_POST['hwid'], $enckey));
-        if (!empty($hwid)) {
-            misc\blacklist\add($hwid, "Hardware ID", $secret);
-        }
-        $ip = api\shared\primary\getIp();
-        misc\blacklist\add($ip, "IP Address", $secret);
-
-        misc\mysql\query("UPDATE `users` SET `banned` = ? WHERE `username` = ? AND `app` = ?", [$reason, $credential, $secret]);
-
-        if ($query->affected_rows != 0) {
-            misc\cache\purge('keyauthUser:' . $secret . ':' . $credential);
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => true,
-                "message" => "Successfully Banned User"
-            )), $enckey));
-        } else {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "Failed to ban user."
-            )), $enckey));
-        }
-    case 'check':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        $credential = $session["credential"];
-        if (!$session["validated"]) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$sessionunauthed"
-            )), $enckey));
-        } else {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => true,
-                "message" => "Session is validated."
-            )), $enckey));
-        }
-    case 'changeUsername':
-        // retrieve session info
-        $sessionid = misc\etc\sanitize(hex2bin($_POST['sessionid']));
-        $session = api\shared\primary\getSession($sessionid, $secret);
-        $enckey = $session["enckey"];
-
-        if (!$session["validated"]) {
-            die(api\v1_0\Encrypt(json_encode(array(
-                "success" => false,
-                "message" => "$sessionunauthed"
-            )), $enckey));
-        }
-
-        $credential = $session["credential"];
-
-        $resp = misc\user\changeUsername($credential, $_POST['newUsername'], $secret);
-        switch ($resp) {
-            case 'already_used':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "Username already used!"
-                )), $enckey));
-            case 'failure':
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "Failed to change username!"
-                )), $enckey));
-            case 'success':
-                misc\session\killSingular($sessionid, $secret);
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => true,
-                    "message" => "Successfully changed username, user logged out."
-                )), $enckey));
-            default:
-                die(api\v1_0\Encrypt(json_encode(array(
-                    "success" => false,
-                    "message" => "Unhandled Error! Contact us if you need help"
-                )), $enckey));
-        }
-    default:
-        die(json_encode(array(
-            "success" => false,
-            "message" => "Unhandled Type"
-        )));
-}
+</html>
